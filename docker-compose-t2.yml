@@ -331,7 +331,7 @@ services:
       - mariadb
       - nextcloud-redis
   nextcloud-app:
-    image: nextcloud
+    image: nextcloud:latest
     container_name: nextcloud-app
     restart: unless-stopped
     #command: docker run -v nextclouddata:/var/www/html/
