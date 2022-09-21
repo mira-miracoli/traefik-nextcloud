@@ -20,5 +20,5 @@
 				rm $bak
 			fi
 		done
-    umount /dev/backup/pi
+    umount $LVNAME
 
