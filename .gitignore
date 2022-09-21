@@ -1,0 +1,16 @@
+centip3.de/kanboard_plugins
+traefik2/acme/
+traefik2/traefik.log
+centip3.de/kanboard_data
+nextcloud/
+mariadb/data/
+sites/wordpress
+vscode/
+secrets/
+authelia
+authelia/configuration.yml
+authelia/configuration.yml
+redis
+mail/mailserver.env
+shared/
+.env

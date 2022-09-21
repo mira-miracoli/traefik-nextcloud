@@ -1,0 +1,439 @@
+version: "3.7"
+
+########################### NETWORKS
+networks:
+  t2_proxy:
+    external:
+      name: t2_proxy
+  default:
+    driver: bridge
+########################### SECRETS
+secrets:
+  cloudflare_email:
+    file: $SECRETSDIR/cloudflare_email
+  cloudflare_api_key:
+    file: $SECRETSDIR/cloudflare_api_key
+  cloudflare_api_token:
+    file: $SECRETSDIR/cloudflare_api_token
+  mysql_root_password:
+    file: $SECRETSDIR/mysql_root_password
+  authelia_jwt_secret:
+    file: $SECRETSDIR/authelia_jwt_secret
+  authelia_session_secret:
+    file: $SECRETSDIR/authelia_session_secret
+  authelia_storage_mysql_password:
+    file: $SECRETSDIR/authelia_storage_mysql_password
+  authelia_duo_api_secret_key:
+    file: $SECRETSDIR/authelia_duo_api_secret_key
+  wordpress_db_password:
+    file: $SECRETSDIR/wordpress_db_password
+  mysql_nextcloud_password:
+    file: $SECRETSDIR/mysql_nextcloud_password
+
+########################### VOLUMES
+volumes:
+  nextclouddata:
+    driver: local
+    driver_opts:
+      type: none
+      device: /media/nextcloud/nextclouddata
+      o: bind
+  mariadbdata:
+    driver: local
+    driver_opts:
+      type: none
+      device: /media/nextcloud/mariadb
+      o: bind
+
+########################### SERVICES
+services:
+# All services / apps go below this line
+
+# Cloudflare DynDNS
+  cloudflare-ddns:
+    image: oznu/cloudflare-ddns:latest
+    restart: always
+    environment:
+      - API_KEY_FILE=/run/secrets/cloudflare_api_token
+      - ZONE=margrethansen.de
+      - PROXIED=false
+    secrets:
+      - cloudflare_api_token
+
+# Traefik 2 - Reverse Proxy
+  traefik:
+    container_name: traefik
+    image: traefik:latest # the chevrotin tag refers to v2.2.x but introduced a breaking change in 2.2.2
+    restart: unless-stopped
+    command: # CLI arguments
+      - --global.checkNewVersion=true
+      - --global.sendAnonymousUsage=true
+      - --entryPoints.http.address=:80
+      - --entryPoints.https.address=:443
+        # Allow these IPs to set the X-Forwarded-* headers - Cloudflare IPs: https://www.cloudflare.com/ips/
+      - --entrypoints.https.forwardedHeaders.trustedIPs=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/12,172.64.0.0/13,131.0.72.0/22
+      - --entryPoints.traefik.address=:8080
+      - --api=true
+#      - --api.insecure=true
+#      - --serversTransport.insecureSkipVerify=true
+      - --log=true
+      - --log.level=INFO # (Default: error) DEBUG, INFO, WARN, ERROR, FATAL, PANIC
+      - --accessLog=true
+      - --accessLog.filePath=/traefik.log
+      - --accessLog.bufferingSize=100 # Configuring a buffer of 100 lines
+      - --accessLog.filters.statusCodes=400-499
+      - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
+      - --providers.docker.defaultrule=Host(`{{ index .Labels "com.docker.compose.service" }}.$DOMAINNAME`)
+      - --providers.docker.exposedByDefault=false
+      - --providers.docker.network=t2_proxy
+      - --providers.docker.swarmMode=false
+      - --providers.file.directory=/rules # Load dynamic configuration from one or more .toml or .yml files in a directory.
+#      - --providers.file.filename=/path/to/file # Load dynamic configuration from a file.
+      - --providers.file.watch=true # Only works on top level files in the rules folder
+      #- --certificatesResolvers.dns-cloudflare.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory # LetsEncrypt Staging Server - uncomment when testing
+      - --certificatesResolvers.dns-cloudflare.acme.email=$CLOUDFLARE_EMAIL
+      - --certificatesResolvers.dns-cloudflare.acme.storage=/acme.json
+      - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.provider=cloudflare
+      - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.resolvers=1.1.1.1:53,1.0.0.1:53
+      - --certificatesResolvers.dns-cloudflare.acme.tlschallenge=true
+    networks:
+      t2_proxy:
+        ipv4_address: 192.168.90.254 # You can specify a static IP
+#    networks:
+#      - t2_proxy
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: host
+    volumes:
+      - $DOCKERDIR/traefik2/rules:/rules 
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - $DOCKERDIR/traefik2/acme/acme.json:/acme.json 
+      - $DOCKERDIR/traefik2/traefik.log:/traefik.log 
+      - $DOCKERDIR/shared:/shared
+    secrets:
+      - cloudflare_email
+      - cloudflare_api_key  
+    environment:
+      - CF_API_EMAIL_FILE=/run/secrets/cloudflare_email
+      - CF_API_KEY_FILE=/run/secrets/cloudflare_api_key
+    labels:
+      - "traefik.enable=true"
+      # HTTP-to-HTTPS Redirect
+      - "traefik.http.routers.http-catchall.entrypoints=http"
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.middlewares=all-redirect@file"
+      # HTTP Routers
+      - "traefik.http.routers.traefik-rtr.entrypoints=https"
+      - "traefik.http.routers.traefik-rtr.rule=Host(`traefik.$DOMAINNAME`)"
+      - "traefik.http.routers.traefik-rtr.tls=true"
+      - "traefik.http.routers.traefik-rtr.tls.certresolver=dns-cloudflare" # Comment out this line after first run of traefik to force the use of wildcard certs
+      - "traefik.http.routers.traefik-rtr.tls.domains[0].main=$DOMAINNAME"
+      - "traefik.http.routers.traefik-rtr.tls.domains[0].sans=*.$DOMAINNAME"
+      - "traefik.http.routers.traefik-rtr.tls.domains[1].main=$SECONDDOMAINNAME" # Pulls main cert for second domain
+      - "traefik.http.routers.traefik-rtr.tls.domains[1].sans=*.$SECONDDOMAINNAME" # Pulls wildcard cert for second domain
+      ## Services - API
+      - "traefik.http.routers.traefik-rtr.service=api@internal"
+      ## Middlewares
+      - "traefik.http.routers.traefik-rtr.middlewares=chain-authelia@file" 
+      - "traefik.http.routers.traefik-rtr.middlewares=chain-no-auth@file"
+      - "traefik.http.middlewares.traefik-headers.headers.accesscontrolalloworiginlist=https://$DOMAINNAME"
+      - "traefik.http.middlewares.traefik-headers.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.traefik-headers.headers.addvaryheader=true"
+      - "traefik.http.middlewares.traefik-headers.headers.allowedhosts=traefik.$DOMAINNAME"
+      - "traefik.http.middlewares.traefik-headers.headers.sslproxyheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.traefik-headers.headers.stsseconds=63072000"
+
+  # MariaDB - MySQL Database
+  mariadb:
+    container_name: mariadb
+    image: linuxserver/mariadb:alpine
+    restart: always
+    #command: --transaction-isolation=READ-COMMITTED --log-bin=ROW --innodb_read_only_compressed=OFF
+    networks:
+      t2_proxy:
+        ipv4_address: 192.168.90.250
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      #- $DOCKERDIR/mariadb/data:/config
+      - mariadbdata:/config
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/mysql_root_password # Not taking this pw during initialization
+    secrets:
+      - mysql_root_password
+
+    ports:
+      - '8200:3306'
+  # PHP - Hypertext Preprocessor
+  php7:
+    container_name: php7
+    image: php:7.4-fpm-custom
+    build:
+      context: $DOCKERDIR/custom/
+      dockerfile: Dockerfile-php7
+    restart: unless-stopped
+    user: $PUID:$PGID # allows upgrading WP and plugins
+    networks:
+      - t2_proxy
+    volumes:
+      - $DOCKERDIR/sites/wordpress/html:/var/www/html/margret
+      - $DOCKERDIR/php/php7:/usr/local/etc/php
+        #- $DOCKERDIR/sites/khub/html:/var/www/html/khub
+        #- $DOCKERDIR/sites/dash/html:/var/www/html/dash
+  # wordpress
+  wordpress:
+    image: wordpress
+    restart: unless-stopped
+    environment:
+      WORDPRESS_DB_HOST: mariadb
+      WORDPRESS_DB_USER: margret   ## Hier Benutzer eingeben ##
+      WORDPRESS_DB_PASSWORD_FILE: /run/secrets/wordpress_db_password ## Hier Passwort eingeben ##
+      WORDPRESS_DB_NAME: wordpress_db
+    volumes:
+      - $DOCKERDIR/sites/wordpress/html:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers SHB (WordPress) Auth
+      - "traefik.http.routers.nginx-margret-auth-rtr.tls=true"
+      - "traefik.http.routers.nginx-margret-auth-rtr.entrypoints=https"
+      - "traefik.http.routers.nginx-margret-auth-rtr.rule=Host(`www.$DOMAINNAME`) && Path(`/wp-login.php`)"
+      - "traefik.http.routers.nginx-margret-auth-rtr.priority=100"
+      - "traefik.http.routers.nginx-margret-auth-rtr.tls.certresolver=dns-cloudflare"
+      ## HTTP Routers SHB (WordPress) Bypass
+      - "traefik.http.routers.nginx-margret-rtr.tls=true"
+      - "traefik.http.routers.nginx-margret-rtr.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.nginx-margret-rtr.entrypoints=https"
+      - "traefik.http.routers.nginx-margret-rtr.rule=Host(`$DOMAINNAME`) || Host(`www.$DOMAINNAME`)"
+      - "traefik.http.routers.nginx-margret-rtr.priority=99"
+      ## HTTP Routers DASH (non-WordPress)
+      - "traefik.http.routers.nginx-dash-rtr.entrypoints=https"
+      - "traefik.http.routers.nginx-dash-rtr.rule=Host(`dash.$DOMAINNAME`)"
+      - "traefik.http.middlewares.margret-redirect.redirectregex.regex=^https?://$DOMAINNAME/(.*)"
+      - "traefik.http.middlewares.margret-redirect.redirectregex.replacement=https://www.$DOMAINNAME/$${1}"
+      - "traefik.http.middlewares.margret-redirect.redirectregex.permanent=true"
+      - "traefik.http.routers.nginx-margret-rtr.middlewares=margret-redirect,chain-no-auth@file"
+      - "traefik.http.routers.nginx-margret-auth-rtr.middlewares=margret-redirect,chain-authelia@file"
+      ## HTTP Services
+      - "traefik.http.routers.nginx-margret-rtr.service=wordpress-app"
+      - "traefik.http.routers.nginx-margret-auth-rtr.service=wordpress-app"
+        #- "traefik.http.routers.nginx-khub-rtr.service=nginx-svc"
+        #- "traefik.http.routers.nginx-dash-rtr.service=nginx-svc"
+      - "traefik.http.services.wordpress-app.loadbalancer.server.port=80"
+    secrets:
+      - wordpress_db_password
+
+    networks:
+      - t2_proxy
+      - default
+
+  # Authelia (Lite) - Self-Hosted Single Sign-On and Two-Factor Authentication
+  authelia:
+    container_name: authelia
+    # image: authelia/authelia:latest
+    image: authelia/authelia:4.21.0
+    restart: always
+    networks:
+      - t2_proxy
+    depends_on:
+      - mariadb
+    volumes:
+      - $DOCKERDIR/authelia:/config
+    environment:
+      - TZ=$TZ
+      - AUTHELIA_JWT_SECRET_FILE=/run/secrets/authelia_jwt_secret
+      - AUTHELIA_SESSION_SECRET_FILE=/run/secrets/authelia_session_secret
+      - AUTHELIA_STORAGE_MYSQL_PASSWORD_FILE=/run/secrets/authelia_storage_mysql_password
+      - AUTHELIA_DUO_API_SECRET_KEY_FILE=/run/secrets/authelia_duo_api_secret_key
+    secrets:
+      - authelia_jwt_secret
+      - authelia_session_secret
+      - authelia_storage_mysql_password
+      - authelia_duo_api_secret_key
+    labels:
+      ## Traefik
+      - "traefik.enable=true"
+      - 'traefik.http.routers.authelia-rtr.tls=true'
+      ## HTTP Routers
+      - "traefik.http.routers.authelia-rtr.entrypoints=https"
+      - "traefik.http.routers.authelia-rtr.rule=Host(`authelia.$DOMAINNAME`)"
+      ## Middlewares
+      - "traefik.http.routers.authelia-rtr.middlewares=chain-authelia@file"
+      ## HTTP Services
+      - "traefik.http.routers.authelia-rtr.service=authelia-svc"
+      - "traefik.http.services.authelia-svc.loadbalancer.server.port=9091"
+
+    expose:
+      - 9091
+
+ # VSCode - VSCode Editing
+  vscode:
+    image: codercom/code-server:latest
+    container_name: vscode
+    restart: unless-stopped
+    networks:
+      - t2_proxy
+    volumes:
+      - $DOCKERDIR:/home/coder/docker
+      - $DOCKERDIR/vscode:/home/coder
+    environment:
+      PASSWORD: $VSCODE_PASSWORD
+      # Run as root first time (user: 0), then stop container, then change permissions to user:docker and 775. Disable run as root below.
+      user: $PUID:$PGID
+      #user: "0"
+    labels:
+      - "traefik.enable=true"
+      ## HTTP Routers
+      - "traefik.http.routers.vscode-rtr.entrypoints=https"
+      - "traefik.http.routers.vscode-rtr.rule=Host(`code.$DOMAINNAME`)"
+      - "traefik.http.routers.vscode-rtr.tls=true"
+      ## Middlewares
+      - "traefik.http.routers.vscode-rtr.middlewares=chain-authelia@file"
+      ## HTTP Services
+      - "traefik.http.routers.vscode-rtr.service=vscode-svc"
+      - "traefik.http.services.vscode-svc.loadbalancer.server.port=8080"
+
+##############################################################
+#              NEXTCLOUD                                     #
+##############################################################
+  nextcloud-redis:
+    image: redis:alpine
+    container_name: nextcloud-redis
+    hostname: nextcloud-redis
+    networks:
+        - default
+    restart: unless-stopped
+    command: redis-server --requirepass $REDIS_HOST_PASSWORD # Redis Passwort eingeben
+  cron:
+    image: nextcloud
+    restart: always
+    volumes:
+      - $DOCKERDIR/nextcloud/app:/var/www/html
+      - nextclouddata:/var/www/html/data
+    entrypoint: /cron.sh
+    depends_on:
+      - mariadb
+      - nextcloud-redis
+  nextcloud-app:
+    image: nextcloud
+    container_name: nextcloud-app
+    restart: unless-stopped
+    #command: docker run -v nextclouddata:/var/www/html/
+    depends_on:
+      - mariadb
+      - nextcloud-redis
+    environment:
+      - MYSQL_PASSWORD_FILE=/run/secrets/mysql_nextcloud_password # Not taking this pw during initialization
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud_db
+      - MYSQL_HOST=mariadb
+      - REDIS_HOST=nextcloud-redis
+      - REDIS_HOST_PASSWORD=$REDIS_HOST_PASSWORD # Redis Passwort von oben wieder eingeben
+      - TRUSTED_PROXIES=t2_proxy   # name of my traefik network
+      - OVERWRITEPROTOCOL=https             
+      - NEXTCLOUD_TRUSTED_DOMAINS=nextcloud.centip3.de
+      - APACHE_DISABLE_REWRITE_IP=1
+    volumes:
+      - $DOCKERDIR/nextcloud/app:/var/www/html
+      - nextclouddata:/var/www/html/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextcloud-app.entrypoints=http"
+      - "traefik.http.routers.nextcloud-app.rule=Host(`nextcloud.centip3.de`)"
+      - "traefik.http.middlewares.nextcloud-app-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.nextcloud-app.middlewares=nextcloud-app-https-redirect"
+      - "traefik.http.routers.nextcloud-app-secure.entrypoints=https"
+      - "traefik.http.routers.nextcloud-app-secure.rule=Host(`nextcloud.centip3.de`)"
+      - "traefik.http.routers.nextcloud-app-secure.tls=true"
+      - "traefik.http.routers.nextcloud-app-secure.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.nextcloud-app-secure.service=nextcloud-app"
+      - "traefik.http.services.nextcloud-app.loadbalancer.server.port=80"
+      - "traefik.docker.network=t2_proxy"
+      - "traefik.http.routers.nextcloud-app-secure.middlewares=nextcloud-dav,chain-no-auth@file"  
+      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.regex=^/.well-known/ca(l|rd)dav"
+      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.replacement=/remote.php/dav/"
+    networks:
+      - t2_proxy
+      - default
+    secrets:
+      - mysql_nextcloud_password
+
+######## COLLABORA
+  collabora:
+    image: collabora/code
+    container_name: collabora
+    networks:
+      - t2_proxy
+    cap_add:
+      - MKNOD
+    expose:
+      - 9980
+    environment:
+      - domain=nextcloud.centip3.de #Gebt hier eure Nextcloud Domain an. Wenn ihr dies nicht nutzt, dann entfernt diese Zeile
+      - username=${COLLABORA_USER}     #Nutzername eingeben
+      - password=${COLLABORA_PW}         #Passwort eingeben
+      - "extra_params=--o:ssl.enable=false --o:ssl.termination=true"
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.collabora.entrypoints=http"
+      - "traefik.http.routers.collabora.rule=Host(`collabora.margrethansen.de`)"  #URL anpassen
+      - "traefik.http.middlewares.collabora-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.collabora.middlewares=collabora-https-redirect"
+      - "traefik.http.routers.collabora-secure.entrypoints=https"
+      - "traefik.http.routers.collabora-secure.rule=Host(`collabora.margrethansen.de`)"  #URL anpassen
+      - "traefik.http.routers.collabora-secure.tls=true"
+      - "traefik.http.routers.collabora-secure.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.collabora-secure.service=collabora"
+      - "traefik.http.services.collabora.loadbalancer.server.port=9980"
+      - "traefik.docker.network=t2_proxy"
+      - "traefik.http.routers.collabora-secure.middlewares=chain-no-auth@file"
+
+
+#################### CENTIP3DE ##########################################################################
+#########################################################################################################
+
+#################### Kanboard ###########################################################################
+
+  kanboard:
+    image: kanboard/kanboard:latest
+    #ports:
+    #  - "80:80"
+    #  - "443:443"
+    volumes:
+      - $DOCKERDIR/centip3.de/kanboard_data:/var/www/app/data
+      - $DOCKERDIR/centip3.de/kanboard_plugins:/var/www/app/plugins
+    networks:
+      - t2_proxy
+    restart: unless-stopped
+    labels:
+      # traefikv2
+      - traefik.enable=true
+      - "traefik.http.routers.kanboard.rule=Host(`kanboard.centip3.de`)"
+      - "traefik.http.routers.kanboard.entrypoints=http"
+      - "traefik.http.middlewares.kanboard-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.kanboard.middlewares=kanboard-https-redirect"
+      - "traefik.http.routers.kanboard-secure.entrypoints=https"
+      - "traefik.http.routers.kanboard-secure.rule=Host(`kanboard.centip3.de`)"
+      - "traefik.http.routers.kanboard-secure.tls=true"
+      - "traefik.http.routers.kanboard-secure.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.kanboard-secure.service=kanboard"
+      - "traefik.http.services.kanboard.loadbalancer.server.port=80"
+      - "traefik.docker.network=t2_proxy"
+      - "traefik.http.routers.kanboard-secure.middlewares=chain-no-auth@file"
