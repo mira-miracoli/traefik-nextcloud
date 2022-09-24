@@ -12,11 +12,11 @@
     cd $BACKUP_DIR
 
 ## CREATE CREDENTIALS FILE
-		credentialsFile=./mysql-credentials.cnf
-		echo "[client]" > $credentialsFile
-		echo "user=$DATABASEUSER" >> $credentialsFile
-		echo "password=$(cat /home/ubuntu/docker/secrets/mysql_root_password)" >> $credentialsFile
-		echo "host=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mariadb)" >> $credentialsFile
+    credentialsFile=./mysql-credentials.cnf
+    echo "[client]" > $credentialsFile
+    echo "user=$DATABASEUSER" >> $credentialsFile
+    echo "password=$(cat /home/ubuntu/docker/secrets/mysql_root_password)" >> $credentialsFile
+    echo "host=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mariadb)" >> $credentialsFile
 
 ## DUMP ALL DATABASES
     for DB in $(mysql --defaults-extra-file=$credentialsFile -e 'show databases' -s --skip-column-names); do
