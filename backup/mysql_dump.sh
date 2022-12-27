@@ -36,5 +36,5 @@
 
 ## UNMOUNT
     cd /
-    umount $LVNAME
+    umount $BACKUP_DIR
 
