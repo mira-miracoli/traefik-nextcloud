@@ -19,12 +19,11 @@
     rsync -Aavx /media/nextcloud/nextclouddata nextcloud-dirbkp_`date +"%Y%m%d"`/
 
 ## ROTATE >7 DAYS
-    bak_files=`ls ./nextcloud-dirbkp_*`
-    for bak in $bak_files; do
+    for bak in ./nextcloud-dirbkp_*; do
         bak_name=`echo $bak`
         bak_date=`echo $bak_name | cut -d'-' -f2- | cut -d'_' -f2`
-        if [[ "$bak_date" < "$(date +%Y%m%d -d "7 days ago")" ]] ; then
-                rm -rf $bak
+        if [ $bak_date -lt $(date +%Y%m%d -d "7 days ago") ] ; then
+                rm -r "$bak"
         fi
     done
 
