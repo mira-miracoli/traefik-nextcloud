@@ -63,7 +63,7 @@ services:
 # Traefik 2 - Reverse Proxy
   traefik:
     container_name: traefik
-    image: traefik:latest # the chevrotin tag refers to v2.2.x but introduced a breaking change in 2.2.2
+    image: traefik:2.10 # the chevrotin tag refers to v2.2.x but introduced a breaking change in 2.2.2
     restart: unless-stopped
     command: # CLI arguments
       - --global.checkNewVersion=true
@@ -118,14 +118,14 @@ services:
         protocol: tcp
         mode: host
     volumes:
-      - $DOCKERDIR/traefik2/rules:/rules 
+      - $DOCKERDIR/traefik2/rules:/rules
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - $DOCKERDIR/traefik2/acme/acme.json:/acme.json 
-      - $DOCKERDIR/traefik2/traefik.log:/traefik.log 
+      - $DOCKERDIR/traefik2/acme/acme.json:/acme.json
+      - $DOCKERDIR/traefik2/traefik.log:/traefik.log
       - $DOCKERDIR/shared:/shared
     secrets:
       - cloudflare_email
-      - cloudflare_api_key  
+      - cloudflare_api_key
     environment:
       - CF_API_EMAIL_FILE=/run/secrets/cloudflare_email
       - CF_API_KEY_FILE=/run/secrets/cloudflare_api_key
@@ -147,14 +147,14 @@ services:
       ## Services - API
       - "traefik.http.routers.traefik-rtr.service=api@internal"
       ## Middlewares
-      - "traefik.http.routers.traefik-rtr.middlewares=chain-authelia@file" 
+      - "traefik.http.routers.traefik-rtr.middlewares=chain-authelia@file"
       - "traefik.http.routers.traefik-rtr.middlewares=chain-no-auth@file"
       - "traefik.http.middlewares.traefik-headers.headers.accesscontrolalloworiginlist=https://$DOMAINNAME"
       - "traefik.http.middlewares.traefik-headers.headers.accesscontrolmaxage=100"
       - "traefik.http.middlewares.traefik-headers.headers.addvaryheader=true"
       - "traefik.http.middlewares.traefik-headers.headers.allowedhosts=traefik.$DOMAINNAME"
       - "traefik.http.middlewares.traefik-headers.headers.sslproxyheaders.X-Forwarded-Proto=https"
-      - "traefik.http.middlewares.traefik-headers.headers.stsseconds=63072000"
+      - "traefik.http.middlewares.traefik-headers.headers.stsseconds=15552000"
 
   # MariaDB - MySQL Database
   mariadb:
@@ -211,11 +211,11 @@ services:
     labels:
       - "traefik.enable=true"
       ## HTTP Routers SHB (WordPress) Auth
-      - "traefik.http.routers.nginx-margret-auth-rtr.tls=true"
-      - "traefik.http.routers.nginx-margret-auth-rtr.entrypoints=https"
-      - "traefik.http.routers.nginx-margret-auth-rtr.rule=Host(`www.$DOMAINNAME`) && Path(`/wp-login.php`)"
-      - "traefik.http.routers.nginx-margret-auth-rtr.priority=100"
-      - "traefik.http.routers.nginx-margret-auth-rtr.tls.certresolver=dns-cloudflare"
+      # - "traefik.http.routers.nginx-margret-auth-rtr.tls=true"
+      # - "traefik.http.routers.nginx-margret-auth-rtr.entrypoints=https"
+      # - "traefik.http.routers.nginx-margret-auth-rtr.rule=Host(`www.$DOMAINNAME`) && Path(`/wp-login.php`)"
+      # - "traefik.http.routers.nginx-margret-auth-rtr.priority=100"
+      # - "traefik.http.routers.nginx-margret-auth-rtr.tls.certresolver=dns-cloudflare"
       ## HTTP Routers SHB (WordPress) Bypass
       - "traefik.http.routers.nginx-margret-rtr.tls=true"
       - "traefik.http.routers.nginx-margret-rtr.tls.certresolver=dns-cloudflare"
@@ -232,7 +232,7 @@ services:
       - "traefik.http.routers.nginx-margret-auth-rtr.middlewares=margret-redirect,chain-authelia@file"
       ## HTTP Services
       - "traefik.http.routers.nginx-margret-rtr.service=wordpress-app"
-      - "traefik.http.routers.nginx-margret-auth-rtr.service=wordpress-app"
+        #- "traefik.http.routers.nginx-margret-auth-rtr.service=wordpress-app"
         #- "traefik.http.routers.nginx-khub-rtr.service=nginx-svc"
         #- "traefik.http.routers.nginx-dash-rtr.service=nginx-svc"
       - "traefik.http.services.wordpress-app.loadbalancer.server.port=80"
@@ -346,7 +346,7 @@ services:
       - REDIS_HOST=nextcloud-redis
       - REDIS_HOST_PASSWORD=$REDIS_HOST_PASSWORD # Redis Passwort von oben wieder eingeben
       - TRUSTED_PROXIES=t2_proxy   # name of my traefik network
-      - OVERWRITEPROTOCOL=https             
+      - OVERWRITEPROTOCOL=https
       - NEXTCLOUD_TRUSTED_DOMAINS=nextcloud.centip3.de
       - APACHE_DISABLE_REWRITE_IP=1
     volumes:
@@ -365,47 +365,52 @@ services:
       - "traefik.http.routers.nextcloud-app-secure.service=nextcloud-app"
       - "traefik.http.services.nextcloud-app.loadbalancer.server.port=80"
       - "traefik.docker.network=t2_proxy"
-      - "traefik.http.routers.nextcloud-app-secure.middlewares=nextcloud-dav,chain-no-auth@file"  
-      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.regex=^/.well-known/ca(l|rd)dav"
-      - "traefik.http.middlewares.nextcloud-dav.replacepathregex.replacement=/remote.php/dav/"
+        #- "traefik.http.routers.nextcloud-app-secure.middlewares=nextcloud-dav,chain-no-auth@file"
+        #- "traefik.http.middlewares.nextcloud-dav.replacepathregex.regex=^/.well-known/ca(l|rd)dav"
+        #- "traefik.http.middlewares.nextcloud-dav.replacepathregex.replacement=/remote.php/dav/"
     networks:
       - t2_proxy
       - default
     secrets:
       - mysql_nextcloud_password
 
-######## COLLABORA
+
   collabora:
-    image: collabora/code
+    image: collabora/code:latest
     container_name: collabora
-    networks:
-      - t2_proxy
     cap_add:
       - MKNOD
-    expose:
-      - 9980
+    networks:
+      - t2_proxy
+        #expose:
+        #- 9980
+    depends_on:
+      - traefik
     environment:
-      - domain=nextcloud.centip3.de #Gebt hier eure Nextcloud Domain an. Wenn ihr dies nicht nutzt, dann entfernt diese Zeile
-      - username=${COLLABORA_USER}     #Nutzername eingeben
-      - password=${COLLABORA_PW}         #Passwort eingeben
-      - "extra_params=--o:ssl.enable=false --o:ssl.termination=true"
+      - aliasgroup1=https://nextcloud.centip3.de:443 #Gebt hier eure Nextcloud Domain an. Wenn ihr dies nicht nutzt, dann entfernt diese Zeile
+      - domain=https://nextcloud.centip3.de
+      - dictionaries=en_US,de_DE
+      - username=$COLLABORA_USER     #Nutzername eingeben
+      - password=$COLLABORA_PW         #Passwort eingeben
+      - "extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:net.proto=IPv4"
     restart: unless-stopped
+      #tty: true
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.collabora.entrypoints=http"
-      - "traefik.http.routers.collabora.rule=Host(`collabora.margrethansen.de`)"  #URL anpassen
-      - "traefik.http.middlewares.collabora-https-redirect.redirectscheme.scheme=https"
-      - "traefik.http.routers.collabora.middlewares=collabora-https-redirect"
-      - "traefik.http.routers.collabora-secure.entrypoints=https"
-      - "traefik.http.routers.collabora-secure.rule=Host(`collabora.margrethansen.de`)"  #URL anpassen
-      - "traefik.http.routers.collabora-secure.tls=true"
-      - "traefik.http.routers.collabora-secure.tls.certresolver=dns-cloudflare"
-      - "traefik.http.routers.collabora-secure.service=collabora"
-      - "traefik.http.services.collabora.loadbalancer.server.port=9980"
-      - "traefik.docker.network=t2_proxy"
-      - "traefik.http.routers.collabora-secure.middlewares=chain-no-auth@file"
-
-
+      - 'traefik.enable=true'
+      - 'traefik.http.routers.collabora.tls=true'
+      - 'traefik.http.routers.collabora.tls.certresolver=dns-cloudflare'
+      - 'traefik.http.routers.collabora.entrypoints=https'
+      - 'traefik.http.routers.collabora.rule=Host(`collabora.margrethansen.de`)'
+      - 'traefik.http.routers.collabora.service=collabora'
+      - 'traefik.http.routers.collabora.middlewares=collabora-header'
+      - 'traefik.http.services.collabora.loadbalancer.server.port=9980'
+      - 'traefik.http.middlewares.collabora-header.headers.browserXssFilter=true'
+      - 'traefik.http.middlewares.collabora-header.headers.contentTypeNosniff=true'
+      - 'traefik.http.middlewares.collabora-header.headers.frameDeny=true'
+     #HSTS Configuration
+      - 'traefik.http.middlewares.collabora-header.headers.stsIncludeSubdomains=true'
+      - 'traefik.http.middlewares.collabora-header.headers.stsPreload=true'
+      - 'traefik.http.middlewares.collabora-header.headers.stsSeconds=15552000'
 #################### CENTIP3DE ##########################################################################
 #########################################################################################################
 
@@ -437,3 +442,69 @@ services:
       - "traefik.http.services.kanboard.loadbalancer.server.port=80"
       - "traefik.docker.network=t2_proxy"
       - "traefik.http.routers.kanboard-secure.middlewares=chain-no-auth@file"
+
+##############################################################
+#              Jellyfin                                      #
+##############################################################
+  jellyfin:
+    image: jellyfin/jellyfin
+    container_name: jellyfin
+    user: "33:33"
+    volumes:
+      - /home/ubuntu/docker/jellyfin/config:/config
+      - /home/ubuntu/docker/jellyfin/cache:/cache
+      - /media/music/Music:/media
+      - /media/nextcloud/nextclouddata/Mira/files/Music:/media2:ro
+    restart: 'unless-stopped'
+    # Optional - alternative address used for autodiscovery
+    environment:
+      - JELLYFIN_PublishedServerUrl=https://media.centip3.de
+    labels:
+      - 'traefik.enable=true'
+      ## HTTP Router
+      #### Entry point where Jellyfin is accessible via
+      #### Change secure to https in the line below to have accessible without needing to specify a port and change the SSLHost option below
+      - 'traefik.http.routers.jellyfin.entryPoints=https'
+      #### Host or Path where Jellyfin is accessible
+      #### Remove (or change) this rule if you'd rather have Jellyfin accessible at a PathPrefix URI
+      - 'traefik.http.routers.jellyfin.rule=Host(`media.centip3.de`)' # OPTIONAL: && PathPrefix(`/jellyfin`)
+      #### Enable TLS with the ACME/LetsEncrypt resolver for media.centip3.de
+      - 'traefik.http.routers.jellyfin.tls=true'
+      ## Middleware
+      - 'traefik.http.routers.jellyfin.middlewares=jellyfin-mw'
+      #### The customResponseHeaders option lists the Header names and values to apply to the response.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.customResponseHeaders.X-Robots-Tag=noindex,nofollow,nosnippet,noarchive,notranslate,noimageindex'
+      #### The sslRedirect is set to true, then only allow https requests.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.SSLRedirect=true'
+      #### The sslHost option is the host name that is used to redirect http requests to https.
+      #### This is the exact URL that will be redirected to, so you can remove the :9999 port if using default SSL port
+      - 'traefik.http.middlewares.jellyfin-mw.headers.SSLHost=media.centip3.de'
+      #### Set sslForceHost to true and set SSLHost to forced requests to use SSLHost even the ones that are already using SSL.
+      #### Note that this uses SSLHost verbatim, so add the port to SSLHost if you are using an alternate port.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.SSLForceHost=true'
+      #### The stsSeconds is the max-age of the Strict-Transport-Security header. If set to 0, would NOT include the header.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.STSSeconds=315360000'
+      #### The stsIncludeSubdomains is set to true, the includeSubDomains directive will be
+      #### appended to the Strict-Transport-Security header.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.STSIncludeSubdomains=true'
+      #### Set stsPreload to true to have the preload flag appended to the Strict-Transport-Security header.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.STSPreload=true'
+      #### Set forceSTSHeader to true, to add the STS header even when the connection is HTTP.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.forceSTSHeader=true'
+      #### Set frameDeny to true to add the X-Frame-Options header with the value of DENY.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.frameDeny=true'
+      #### Set contentTypeNosniff to true to add the X-Content-Type-Options header with the value nosniff.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.contentTypeNosniff=true'
+      #### Set browserXssFilter to true to add the X-XSS-Protection header with the value 1; mode=block.
+      - 'traefik.http.middlewares.jellyfin-mw.headers.customresponseheaders.X-XSS-PROTECTION=0'
+      #### The customFrameOptionsValue allows the X-Frame-Options header value to be set with a custom value. This
+      #### overrides the FrameDeny option.
+      - "traefik.http.middlewares.jellyfin-mw.headers.customFrameOptionsValue='allow-from https://centip3.de'"
+      ## HTTP Service
+      # We define the port here as a port is required, but note that the service is pointing to the service defined in @file
+      - 'traefik.http.routers.jellyfin.service=jellyfin-svc'
+      - 'traefik.http.services.jellyfin-svc.loadBalancer.server.port=8096'
+      - 'traefik.http.services.jellyfin-svc.loadBalancer.passHostHeader=true'
+
+    networks:
+      - t2_proxy
