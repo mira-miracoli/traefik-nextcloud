@@ -454,6 +454,7 @@ services:
       - /home/ubuntu/docker/jellyfin/config:/config
       - /home/ubuntu/docker/jellyfin/cache:/cache
       - /media/music/Music:/media
+      - /media/nextcloud/nextclouddata/Mira/files/Filme:/media1:ro
       - /media/nextcloud/nextclouddata/Mira/files/Music:/media2:ro
     restart: 'unless-stopped'
     # Optional - alternative address used for autodiscovery
