@@ -69,6 +69,7 @@ services:
       - --global.checkNewVersion=true
       - --global.sendAnonymousUsage=true
       - --entryPoints.http.address=:80
+      - --entryPoints.http.http.redirections.entryPoint.scheme=https
       - --entryPoints.https.address=:443
         # Allow these IPs to set the X-Forwarded-* headers - Cloudflare IPs: https://www.cloudflare.com/ips/
       - --entrypoints.https.forwardedHeaders.trustedIPs=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/12,172.64.0.0/13,131.0.72.0/22
@@ -476,9 +477,6 @@ services:
       #### The customResponseHeaders option lists the Header names and values to apply to the response.
       - 'traefik.http.middlewares.jellyfin-mw.headers.customResponseHeaders.X-Robots-Tag=noindex,nofollow,nosnippet,noarchive,notranslate,noimageindex'
       #### The sslRedirect is set to true, then only allow https requests.
-      - 'traefik.http.middlewares.jellyfin-mw.headers.SSLRedirect=true'
-      #### The sslHost option is the host name that is used to redirect http requests to https.
-      #### This is the exact URL that will be redirected to, so you can remove the :9999 port if using default SSL port
       - 'traefik.http.middlewares.jellyfin-mw.headers.SSLHost=media.centip3.de'
       #### Set sslForceHost to true and set SSLHost to forced requests to use SSLHost even the ones that are already using SSL.
       #### Note that this uses SSLHost verbatim, so add the port to SSLHost if you are using an alternate port.
