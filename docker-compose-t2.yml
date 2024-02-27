@@ -15,6 +15,8 @@ secrets:
     file: $SECRETSDIR/cloudflare_api_key
   cloudflare_api_token:
     file: $SECRETSDIR/cloudflare_api_token
+  ionos_api_key:
+    file: $SECRETSDIR/ionos_api_key
   mysql_root_password:
     file: $SECRETSDIR/mysql_root_password
   authelia_jwt_secret:
@@ -27,6 +29,8 @@ secrets:
     file: $SECRETSDIR/authelia_duo_api_secret_key
   wordpress_db_password:
     file: $SECRETSDIR/wordpress_db_password
+  csd_wordpress_db_password:
+    file: $SECRETSDIR/csd_wordpress_db_password
   mysql_nextcloud_password:
     file: $SECRETSDIR/mysql_nextcloud_password
 
@@ -93,6 +97,11 @@ services:
 #      - --providers.file.filename=/path/to/file # Load dynamic configuration from a file.
       - --providers.file.watch=true # Only works on top level files in the rules folder
       #- --certificatesResolvers.dns-cloudflare.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory # LetsEncrypt Staging Server - uncomment when testing
+      - --certificatesResolvers.dns-ionos.acme.email=$CLOUDFLARE_EMAIL
+      - --certificatesResolvers.dns-ionos.acme.storage=/acme.json
+      - --certificatesResolvers.dns-ionos.acme.dnsChallenge.provider=ionos
+      - --certificatesResolvers.dns-ionos.acme.dnsChallenge.resolvers=1.1.1.1:53,1.0.0.1:53
+      - --certificatesResolvers.dns-ionos.acme.tlschallenge=true
       - --certificatesResolvers.dns-cloudflare.acme.email=$CLOUDFLARE_EMAIL
       - --certificatesResolvers.dns-cloudflare.acme.storage=/acme.json
       - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.provider=cloudflare
@@ -127,9 +136,11 @@ services:
     secrets:
       - cloudflare_email
       - cloudflare_api_key
+      - ionos_api_key
     environment:
       - CF_API_EMAIL_FILE=/run/secrets/cloudflare_email
       - CF_API_KEY_FILE=/run/secrets/cloudflare_api_key
+      - IONOS_API_KEY_FILE=/run/secrets/ionos_api_key
     labels:
       - "traefik.enable=true"
       # HTTP-to-HTTPS Redirect
@@ -143,8 +154,8 @@ services:
       - "traefik.http.routers.traefik-rtr.tls.certresolver=dns-cloudflare" # Comment out this line after first run of traefik to force the use of wildcard certs
       - "traefik.http.routers.traefik-rtr.tls.domains[0].main=$DOMAINNAME"
       - "traefik.http.routers.traefik-rtr.tls.domains[0].sans=*.$DOMAINNAME"
-      - "traefik.http.routers.traefik-rtr.tls.domains[1].main=$SECONDDOMAINNAME" # Pulls main cert for second domain
-      - "traefik.http.routers.traefik-rtr.tls.domains[1].sans=*.$SECONDDOMAINNAME" # Pulls wildcard cert for second domain
+        # - "traefik.http.routers.traefik-rtr.tls.domains[1].main=$SECONDDOMAINNAME" # Pulls main cert for second domain
+        # - "traefik.http.routers.traefik-rtr.tls.domains[1].sans=*.$SECONDDOMAINNAME" # Pulls wildcard cert for second domain
       ## Services - API
       - "traefik.http.routers.traefik-rtr.service=api@internal"
       ## Middlewares
@@ -200,15 +211,15 @@ services:
         #- $DOCKERDIR/sites/dash/html:/var/www/html/dash
   # wordpress
   wordpress:
-    image: wordpress
+    image: wordpress:latest
     restart: unless-stopped
     environment:
       WORDPRESS_DB_HOST: mariadb
-      WORDPRESS_DB_USER: margret   ## Hier Benutzer eingeben ##
-      WORDPRESS_DB_PASSWORD_FILE: /run/secrets/wordpress_db_password ## Hier Passwort eingeben ##
-      WORDPRESS_DB_NAME: wordpress_db
+      WORDPRESS_DB_USER: $CSD_DB_USER   ## Hier Benutzer eingeben ##
+      WORDPRESS_DB_PASSWORD_FILE: /run/secrets/csd_wordpress_db_password ## Hier Passwort eingeben ##
+      WORDPRESS_DB_NAME: wordpress_csd
     volumes:
-      - $DOCKERDIR/sites/wordpress/html:/var/www/html
+      - $DOCKERDIR/sites/test.freiburg-pride.de/html:/var/www/html
     labels:
       - "traefik.enable=true"
       ## HTTP Routers SHB (WordPress) Auth
@@ -219,18 +230,12 @@ services:
       # - "traefik.http.routers.nginx-margret-auth-rtr.tls.certresolver=dns-cloudflare"
       ## HTTP Routers SHB (WordPress) Bypass
       - "traefik.http.routers.nginx-margret-rtr.tls=true"
-      - "traefik.http.routers.nginx-margret-rtr.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.nginx-margret-rtr.tls.certresolver=dns-ionos"
       - "traefik.http.routers.nginx-margret-rtr.entrypoints=https"
-      - "traefik.http.routers.nginx-margret-rtr.rule=Host(`$DOMAINNAME`) || Host(`www.$DOMAINNAME`)"
-      - "traefik.http.routers.nginx-margret-rtr.priority=99"
+      - "traefik.http.routers.nginx-margret-rtr.rule=Host(`test-csd.$SECONDDOMAINNAME`) || Host(`www.test-csd.$SECONDDOMAINNAME`)"
       ## HTTP Routers DASH (non-WordPress)
-      - "traefik.http.routers.nginx-dash-rtr.entrypoints=https"
-      - "traefik.http.routers.nginx-dash-rtr.rule=Host(`dash.$DOMAINNAME`)"
-      - "traefik.http.middlewares.margret-redirect.redirectregex.regex=^https?://$DOMAINNAME/(.*)"
-      - "traefik.http.middlewares.margret-redirect.redirectregex.replacement=https://www.$DOMAINNAME/$${1}"
-      - "traefik.http.middlewares.margret-redirect.redirectregex.permanent=true"
-      - "traefik.http.routers.nginx-margret-rtr.middlewares=margret-redirect,chain-no-auth@file"
-      - "traefik.http.routers.nginx-margret-auth-rtr.middlewares=margret-redirect,chain-authelia@file"
+      - "traefik.http.routers.nginx-margret-rtr.middlewares=chain-no-auth@file"
+      # - "traefik.http.routers.nginx-margret-auth-rtr.middlewares=chain-authelia@file"
       ## HTTP Services
       - "traefik.http.routers.nginx-margret-rtr.service=wordpress-app"
         #- "traefik.http.routers.nginx-margret-auth-rtr.service=wordpress-app"
@@ -238,7 +243,7 @@ services:
         #- "traefik.http.routers.nginx-dash-rtr.service=nginx-svc"
       - "traefik.http.services.wordpress-app.loadbalancer.server.port=80"
     secrets:
-      - wordpress_db_password
+      - csd_wordpress_db_password
 
     networks:
       - t2_proxy
@@ -273,7 +278,7 @@ services:
       - 'traefik.http.routers.authelia-rtr.tls=true'
       ## HTTP Routers
       - "traefik.http.routers.authelia-rtr.entrypoints=https"
-      - "traefik.http.routers.authelia-rtr.rule=Host(`authelia.$DOMAINNAME`)"
+      - "traefik.http.routers.authelia-rtr.rule=Host(`auth.$DOMAINNAME`)"
       ## Middlewares
       - "traefik.http.routers.authelia-rtr.middlewares=chain-authelia@file"
       ## HTTP Services
@@ -476,11 +481,6 @@ services:
       - 'traefik.http.routers.jellyfin.middlewares=jellyfin-mw'
       #### The customResponseHeaders option lists the Header names and values to apply to the response.
       - 'traefik.http.middlewares.jellyfin-mw.headers.customResponseHeaders.X-Robots-Tag=noindex,nofollow,nosnippet,noarchive,notranslate,noimageindex'
-      #### The sslRedirect is set to true, then only allow https requests.
-      - 'traefik.http.middlewares.jellyfin-mw.headers.SSLHost=media.centip3.de'
-      #### Set sslForceHost to true and set SSLHost to forced requests to use SSLHost even the ones that are already using SSL.
-      #### Note that this uses SSLHost verbatim, so add the port to SSLHost if you are using an alternate port.
-      - 'traefik.http.middlewares.jellyfin-mw.headers.SSLForceHost=true'
       #### The stsSeconds is the max-age of the Strict-Transport-Security header. If set to 0, would NOT include the header.
       - 'traefik.http.middlewares.jellyfin-mw.headers.STSSeconds=315360000'
       #### The stsIncludeSubdomains is set to true, the includeSubDomains directive will be

@@ -38,7 +38,7 @@
 #      sslForceHost = true # add sslHost to all of the services
 #      sslHost = "margrethansen.de"
       referrerPolicy = "same-origin" 
-      contentSecurityPolicy = "frame-ancestors '*.margrethansen.de:*';object-src 'none';"
+#      contentSecurityPolicy = "frame-ancestors '*.margrethansen.de:*';object-src 'none';"
       permissionsPolicy = "camera 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'; vr 'none';" 
 
       [http.middlewares.middlewares-secure-headers.headers.customResponseHeaders]
