@@ -17,6 +17,8 @@ secrets:
     file: $SECRETSDIR/cloudflare_api_token
   ionos_api_key:
     file: $SECRETSDIR/ionos_api_key
+  ionos_dyndns:
+    file: $SECRETSDIR/ionos_dyndns
   mysql_root_password:
     file: $SECRETSDIR/mysql_root_password
   authelia_jwt_secret:
@@ -59,21 +61,32 @@ services:
     restart: always
     environment:
       - API_KEY_FILE=/run/secrets/cloudflare_api_token
-      - ZONE=margrethansen.de
+      - ZONE=$DOMAINNAME
       - PROXIED=false
     secrets:
       - cloudflare_api_token
 
+# Ionos DynDns
+  ionos-ddns:
+    container_name: ionos-ddns
+    image: miramiracoli/dyndns:1.0.0
+    restart: unless-stopped
+    environment:
+      - CONFIG=/var/run/ionos_dyndns
+      - FREQUENCY=*/1 * * * *
+    secrets:
+      - ionos_dyndns
+
 # Traefik 2 - Reverse Proxy
   traefik:
     container_name: traefik
-    image: traefik:2.10 # the chevrotin tag refers to v2.2.x but introduced a breaking change in 2.2.2
+    image: traefik:v3.0 # the chevrotin tag refers to v2.2.x but introduced a breaking change in 2.2.2
     restart: unless-stopped
     command: # CLI arguments
       - --global.checkNewVersion=true
       - --global.sendAnonymousUsage=true
-      - --entryPoints.http.address=:80
-      - --entryPoints.http.http.redirections.entryPoint.scheme=https
+        #- --entryPoints.http.address=:80
+        # - --entryPoints.http.http.redirections.entryPoint.scheme=https
       - --entryPoints.https.address=:443
         # Allow these IPs to set the X-Forwarded-* headers - Cloudflare IPs: https://www.cloudflare.com/ips/
       - --entrypoints.https.forwardedHeaders.trustedIPs=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/12,172.64.0.0/13,131.0.72.0/22
@@ -92,7 +105,6 @@ services:
       - --providers.docker.defaultrule=Host(`{{ index .Labels "com.docker.compose.service" }}.$DOMAINNAME`)
       - --providers.docker.exposedByDefault=false
       - --providers.docker.network=t2_proxy
-      - --providers.docker.swarmMode=false
       - --providers.file.directory=/rules # Load dynamic configuration from one or more .toml or .yml files in a directory.
 #      - --providers.file.filename=/path/to/file # Load dynamic configuration from a file.
       - --providers.file.watch=true # Only works on top level files in the rules folder
@@ -136,31 +148,34 @@ services:
     secrets:
       - cloudflare_email
       - cloudflare_api_key
+      - cloudflare_api_token
       - ionos_api_key
+        #- ionos_dyndns_url
     environment:
-      - CF_API_EMAIL_FILE=/run/secrets/cloudflare_email
-      - CF_API_KEY_FILE=/run/secrets/cloudflare_api_key
+      # - CF_API_EMAIL_FILE=/run/secrets/cloudflare_email
+      # - CF_API_KEY_FILE=/run/secrets/cloudflare_api_key
+      - CF_DNS_API_TOKEN_FILE=/run/secrets/cloudflare_api_token
       - IONOS_API_KEY_FILE=/run/secrets/ionos_api_key
     labels:
       - "traefik.enable=true"
       # HTTP-to-HTTPS Redirect
-      - "traefik.http.routers.http-catchall.entrypoints=http"
-      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
-      - "traefik.http.routers.http-catchall.middlewares=all-redirect@file"
+      # - "traefik.http.routers.http-catchall.entrypoints=https"
+      # - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      # - "traefik.http.routers.http-catchall.middlewares=all-redirect@file"
       # HTTP Routers
       - "traefik.http.routers.traefik-rtr.entrypoints=https"
       - "traefik.http.routers.traefik-rtr.rule=Host(`traefik.$DOMAINNAME`)"
       - "traefik.http.routers.traefik-rtr.tls=true"
       - "traefik.http.routers.traefik-rtr.tls.certresolver=dns-cloudflare" # Comment out this line after first run of traefik to force the use of wildcard certs
-      - "traefik.http.routers.traefik-rtr.tls.domains[0].main=$DOMAINNAME"
-      - "traefik.http.routers.traefik-rtr.tls.domains[0].sans=*.$DOMAINNAME"
+        # - "traefik.http.routers.traefik-rtr.tls.domains[0].main=$DOMAINNAME"
+        # - "traefik.http.routers.traefik-rtr.tls.domains[0].sans=*.$DOMAINNAME"
         # - "traefik.http.routers.traefik-rtr.tls.domains[1].main=$SECONDDOMAINNAME" # Pulls main cert for second domain
         # - "traefik.http.routers.traefik-rtr.tls.domains[1].sans=*.$SECONDDOMAINNAME" # Pulls wildcard cert for second domain
       ## Services - API
       - "traefik.http.routers.traefik-rtr.service=api@internal"
       ## Middlewares
       - "traefik.http.routers.traefik-rtr.middlewares=chain-authelia@file"
-      - "traefik.http.routers.traefik-rtr.middlewares=chain-no-auth@file"
+      # - "traefik.http.routers.traefik-rtr.middlewares=chain-no-auth@file"
       - "traefik.http.middlewares.traefik-headers.headers.accesscontrolalloworiginlist=https://$DOMAINNAME"
       - "traefik.http.middlewares.traefik-headers.headers.accesscontrolmaxage=100"
       - "traefik.http.middlewares.traefik-headers.headers.addvaryheader=true"
@@ -232,7 +247,7 @@ services:
       - "traefik.http.routers.nginx-margret-rtr.tls=true"
       - "traefik.http.routers.nginx-margret-rtr.tls.certresolver=dns-ionos"
       - "traefik.http.routers.nginx-margret-rtr.entrypoints=https"
-      - "traefik.http.routers.nginx-margret-rtr.rule=Host(`test-csd.$SECONDDOMAINNAME`) || Host(`www.test-csd.$SECONDDOMAINNAME`)"
+      - "traefik.http.routers.nginx-margret-rtr.rule=Host(`test.$SECONDDOMAINNAME`)"
       ## HTTP Routers DASH (non-WordPress)
       - "traefik.http.routers.nginx-margret-rtr.middlewares=chain-no-auth@file"
       # - "traefik.http.routers.nginx-margret-auth-rtr.middlewares=chain-authelia@file"
@@ -353,19 +368,15 @@ services:
       - REDIS_HOST_PASSWORD=$REDIS_HOST_PASSWORD # Redis Passwort von oben wieder eingeben
       - TRUSTED_PROXIES=t2_proxy   # name of my traefik network
       - OVERWRITEPROTOCOL=https
-      - NEXTCLOUD_TRUSTED_DOMAINS=nextcloud.centip3.de
+      - NEXTCLOUD_TRUSTED_DOMAINS=nextcloud.$DOMAINNAME
       - APACHE_DISABLE_REWRITE_IP=1
     volumes:
       - $DOCKERDIR/nextcloud/app:/var/www/html
       - nextclouddata:/var/www/html/data
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.nextcloud-app.entrypoints=http"
-      - "traefik.http.routers.nextcloud-app.rule=Host(`nextcloud.centip3.de`)"
-      - "traefik.http.middlewares.nextcloud-app-https-redirect.redirectscheme.scheme=https"
-      - "traefik.http.routers.nextcloud-app.middlewares=nextcloud-app-https-redirect"
       - "traefik.http.routers.nextcloud-app-secure.entrypoints=https"
-      - "traefik.http.routers.nextcloud-app-secure.rule=Host(`nextcloud.centip3.de`)"
+      - "traefik.http.routers.nextcloud-app-secure.rule=Host(`nextcloud.$DOMAINNAME`)"
       - "traefik.http.routers.nextcloud-app-secure.tls=true"
       - "traefik.http.routers.nextcloud-app-secure.tls.certresolver=dns-cloudflare"
       - "traefik.http.routers.nextcloud-app-secure.service=nextcloud-app"
@@ -393,8 +404,8 @@ services:
     depends_on:
       - traefik
     environment:
-      - aliasgroup1=https://nextcloud.centip3.de:443 #Gebt hier eure Nextcloud Domain an. Wenn ihr dies nicht nutzt, dann entfernt diese Zeile
-      - domain=https://nextcloud.centip3.de
+      - aliasgroup1=https://nextcloud.$DOMAINNAME:443 #Gebt hier eure Nextcloud Domain an. Wenn ihr dies nicht nutzt, dann entfernt diese Zeile
+      - domain=https://nextcloud.$DOMAINNAME
       - dictionaries=en_US,de_DE
       - username=$COLLABORA_USER     #Nutzername eingeben
       - password=$COLLABORA_PW         #Passwort eingeben
@@ -406,7 +417,7 @@ services:
       - 'traefik.http.routers.collabora.tls=true'
       - 'traefik.http.routers.collabora.tls.certresolver=dns-cloudflare'
       - 'traefik.http.routers.collabora.entrypoints=https'
-      - 'traefik.http.routers.collabora.rule=Host(`collabora.margrethansen.de`)'
+      - 'traefik.http.routers.collabora.rule=Host(`collabora.$DOMAINNAME`)'
       - 'traefik.http.routers.collabora.service=collabora'
       - 'traefik.http.routers.collabora.middlewares=collabora-header'
       - 'traefik.http.services.collabora.loadbalancer.server.port=9980'
@@ -428,20 +439,16 @@ services:
     #  - "80:80"
     #  - "443:443"
     volumes:
-      - $DOCKERDIR/centip3.de/kanboard_data:/var/www/app/data
-      - $DOCKERDIR/centip3.de/kanboard_plugins:/var/www/app/plugins
+      - $DOCKERDIR/$DOMAINNAME/kanboard_data:/var/www/app/data
+      - $DOCKERDIR/$DOMAINNAME/kanboard_plugins:/var/www/app/plugins
     networks:
       - t2_proxy
     restart: unless-stopped
     labels:
       # traefikv2
       - traefik.enable=true
-      - "traefik.http.routers.kanboard.rule=Host(`kanboard.centip3.de`)"
-      - "traefik.http.routers.kanboard.entrypoints=http"
-      - "traefik.http.middlewares.kanboard-https-redirect.redirectscheme.scheme=https"
-      - "traefik.http.routers.kanboard.middlewares=kanboard-https-redirect"
       - "traefik.http.routers.kanboard-secure.entrypoints=https"
-      - "traefik.http.routers.kanboard-secure.rule=Host(`kanboard.centip3.de`)"
+      - "traefik.http.routers.kanboard-secure.rule=Host(`kanboard.$DOMAINNAME`)"
       - "traefik.http.routers.kanboard-secure.tls=true"
       - "traefik.http.routers.kanboard-secure.tls.certresolver=dns-cloudflare"
       - "traefik.http.routers.kanboard-secure.service=kanboard"
@@ -465,7 +472,7 @@ services:
     restart: 'unless-stopped'
     # Optional - alternative address used for autodiscovery
     environment:
-      - JELLYFIN_PublishedServerUrl=https://media.centip3.de
+      - JELLYFIN_PublishedServerUrl=https://media.$DOMAINNAME
     labels:
       - 'traefik.enable=true'
       ## HTTP Router
@@ -474,8 +481,8 @@ services:
       - 'traefik.http.routers.jellyfin.entryPoints=https'
       #### Host or Path where Jellyfin is accessible
       #### Remove (or change) this rule if you'd rather have Jellyfin accessible at a PathPrefix URI
-      - 'traefik.http.routers.jellyfin.rule=Host(`media.centip3.de`)' # OPTIONAL: && PathPrefix(`/jellyfin`)
-      #### Enable TLS with the ACME/LetsEncrypt resolver for media.centip3.de
+      - 'traefik.http.routers.jellyfin.rule=Host(`media.$DOMAINNAME`)' # OPTIONAL: && PathPrefix(`/jellyfin`)
+      #### Enable TLS with the ACME/LetsEncrypt resolver for media.$DOMAINNAME
       - 'traefik.http.routers.jellyfin.tls=true'
       ## Middleware
       - 'traefik.http.routers.jellyfin.middlewares=jellyfin-mw'
@@ -498,7 +505,7 @@ services:
       - 'traefik.http.middlewares.jellyfin-mw.headers.customresponseheaders.X-XSS-PROTECTION=0'
       #### The customFrameOptionsValue allows the X-Frame-Options header value to be set with a custom value. This
       #### overrides the FrameDeny option.
-      - "traefik.http.middlewares.jellyfin-mw.headers.customFrameOptionsValue='allow-from https://centip3.de'"
+      - "traefik.http.middlewares.jellyfin-mw.headers.customFrameOptionsValue='allow-from https://$DOMAINNAME'"
       ## HTTP Service
       # We define the port here as a port is required, but note that the service is pointing to the service defined in @file
       - 'traefik.http.routers.jellyfin.service=jellyfin-svc'
