@@ -460,7 +460,7 @@ services:
 #              Jellyfin                                      #
 ##############################################################
   jellyfin:
-    image: jellyfin/jellyfin
+    image: jellyfin/jellyfin:latest
     container_name: jellyfin
     user: "33:33"
     volumes:
