@@ -17,6 +17,14 @@
       address = "http://authelia:9091/api/verify?auth=basic"
       trustForwardHeader = true
       authResponseHeaders = ["Remote-User", "Remote-Groups"]
+  [http.middlewares.middlewares-authelia-new]
+    [http.middlewares.middlewares-authelia-new.forwardAuth]
+      address = 'http://authelia:9091/api/authz/forward-auth'
+      ## The following commented line is for configuring the Authelia URL in the proxy. We strongly suggest this is
+      ## configured in the Session Cookies section of the Authelia configuration.
+      # address: 'http://authelia:9091/api/authz/forward-auth?authelia_url=https%3A%2F%2Fauth.example.com%2F'
+      trustForwardHeader = true
+      authResponseHeaders = ['Remote-User', 'Remote-Groups', 'Remote-Email', 'Remote-Name']
 
   [http.middlewares.middlewares-rate-limit]
     [http.middlewares.middlewares-rate-limit.rateLimit]
