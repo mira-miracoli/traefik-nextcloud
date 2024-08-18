@@ -7,9 +7,9 @@ mariadb/data/
 sites/wordpress
 vscode/
 secrets/
-authelia
-authelia/configuration.yml
-authelia/configuration.yml
+authelia/users_database.yml
+authelia/notifications.txt
+authelia/db.sqlite3
 redis
 mail/mailserver.env
 shared/
