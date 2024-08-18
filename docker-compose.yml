@@ -27,8 +27,12 @@ secrets:
     file: $SECRETSDIR/authelia_session_secret
   authelia_storage_mysql_password:
     file: $SECRETSDIR/authelia_storage_mysql_password
+  authelia_storage_encryption_key:
+    file: $SECRETSDIR/authelia_storage_encryption_key
   authelia_duo_api_secret_key:
     file: $SECRETSDIR/authelia_duo_api_secret_key
+  authelia_notifier_smtp_password:
+    file: $SECRETSDIR/authelia_notifier_smtp_password
   wordpress_db_password:
     file: $SECRETSDIR/wordpress_db_password
   csd_wordpress_db_password:
@@ -113,12 +117,12 @@ services:
       - --certificatesResolvers.dns-ionos.acme.storage=/acme.json
       - --certificatesResolvers.dns-ionos.acme.dnsChallenge.provider=ionos
       - --certificatesResolvers.dns-ionos.acme.dnsChallenge.resolvers=1.1.1.1:53,1.0.0.1:53
-      - --certificatesResolvers.dns-ionos.acme.tlschallenge=true
+      - --certificatesResolvers.dns-ionos.acme.dnsChallenge=true
       - --certificatesResolvers.dns-cloudflare.acme.email=$CLOUDFLARE_EMAIL
       - --certificatesResolvers.dns-cloudflare.acme.storage=/acme.json
       - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.provider=cloudflare
       - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge.resolvers=1.1.1.1:53,1.0.0.1:53
-      - --certificatesResolvers.dns-cloudflare.acme.tlschallenge=true
+      - --certificatesResolvers.dns-cloudflare.acme.dnsChallenge=true
     networks:
       t2_proxy:
         ipv4_address: 192.168.90.254 # You can specify a static IP
@@ -152,9 +156,9 @@ services:
       - ionos_api_key
         #- ionos_dyndns_url
     environment:
-      # - CF_API_EMAIL_FILE=/run/secrets/cloudflare_email
-      # - CF_API_KEY_FILE=/run/secrets/cloudflare_api_key
-      - CF_DNS_API_TOKEN_FILE=/run/secrets/cloudflare_api_token
+      - CF_API_EMAIL_FILE=/run/secrets/cloudflare_email
+      - CF_API_KEY_FILE=/run/secrets/cloudflare_api_key
+ #    - CF_DNS_API_TOKEN_FILE=/run/secrets/cloudflare_api_token
       - IONOS_API_KEY_FILE=/run/secrets/ionos_api_key
     labels:
       - "traefik.enable=true"
@@ -174,7 +178,7 @@ services:
       ## Services - API
       - "traefik.http.routers.traefik-rtr.service=api@internal"
       ## Middlewares
-      - "traefik.http.routers.traefik-rtr.middlewares=chain-authelia@file"
+      - "traefik.http.routers.traefik-rtr.middlewares=chain-auth@file"
       # - "traefik.http.routers.traefik-rtr.middlewares=chain-no-auth@file"
       - "traefik.http.middlewares.traefik-headers.headers.accesscontrolalloworiginlist=https://$DOMAINNAME"
       - "traefik.http.middlewares.traefik-headers.headers.accesscontrolmaxage=100"
@@ -247,7 +251,7 @@ services:
       - "traefik.http.routers.nginx-margret-rtr.tls=true"
       - "traefik.http.routers.nginx-margret-rtr.tls.certresolver=dns-ionos"
       - "traefik.http.routers.nginx-margret-rtr.entrypoints=https"
-      - "traefik.http.routers.nginx-margret-rtr.rule=Host(`test.$SECONDDOMAINNAME`)"
+      - "traefik.http.routers.nginx-margret-rtr.rule=Host(`$SECONDDOMAINNAME`)"
       ## HTTP Routers DASH (non-WordPress)
       - "traefik.http.routers.nginx-margret-rtr.middlewares=chain-no-auth@file"
       # - "traefik.http.routers.nginx-margret-auth-rtr.middlewares=chain-authelia@file"
@@ -268,7 +272,7 @@ services:
   authelia:
     container_name: authelia
     # image: authelia/authelia:latest
-    image: authelia/authelia:4.21.0
+    image: authelia/authelia:latest
     restart: always
     networks:
       - t2_proxy
@@ -281,12 +285,16 @@ services:
       - AUTHELIA_JWT_SECRET_FILE=/run/secrets/authelia_jwt_secret
       - AUTHELIA_SESSION_SECRET_FILE=/run/secrets/authelia_session_secret
       - AUTHELIA_STORAGE_MYSQL_PASSWORD_FILE=/run/secrets/authelia_storage_mysql_password
+      - AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE=/run/secrets/authelia_storage_encryption_key
       - AUTHELIA_DUO_API_SECRET_KEY_FILE=/run/secrets/authelia_duo_api_secret_key
+      - AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE=/run/secrets/authelia_notifier_smtp_password
     secrets:
       - authelia_jwt_secret
       - authelia_session_secret
       - authelia_storage_mysql_password
       - authelia_duo_api_secret_key
+      - authelia_notifier_smtp_password
+      - authelia_storage_encryption_key
     labels:
       ## Traefik
       - "traefik.enable=true"
@@ -294,8 +302,9 @@ services:
       ## HTTP Routers
       - "traefik.http.routers.authelia-rtr.entrypoints=https"
       - "traefik.http.routers.authelia-rtr.rule=Host(`auth.$DOMAINNAME`)"
+      - "traefik.http.routers.authelia-rtr.tls.certresolver=dns-cloudflare"
       ## Middlewares
-      - "traefik.http.routers.authelia-rtr.middlewares=chain-authelia@file"
+      - "traefik.http.routers.authelia-rtr.middlewares=chain-auth@file"
       ## HTTP Services
       - "traefik.http.routers.authelia-rtr.service=authelia-svc"
       - "traefik.http.services.authelia-svc.loadbalancer.server.port=9091"
@@ -484,6 +493,7 @@ services:
       - 'traefik.http.routers.jellyfin.rule=Host(`media.$DOMAINNAME`)' # OPTIONAL: && PathPrefix(`/jellyfin`)
       #### Enable TLS with the ACME/LetsEncrypt resolver for media.$DOMAINNAME
       - 'traefik.http.routers.jellyfin.tls=true'
+      - "traefik.http.routers.jellyfin.tls.certresolver=dns-cloudflare"
       ## Middleware
       - 'traefik.http.routers.jellyfin.middlewares=jellyfin-mw'
       #### The customResponseHeaders option lists the Header names and values to apply to the response.
@@ -514,3 +524,57 @@ services:
 
     networks:
       - t2_proxy
+  radarr:
+    image: ghcr.io/linuxserver/radarr
+    container_name: radarr
+    hostname: radarr
+    networks:
+      - t2_proxy
+    environment:
+      - PUID=33
+      - PGID=33
+      - TZ=Germany/Berlin
+      #- UMASK=002
+    volumes:
+      - /home/ubuntu/docker/radarr:/config
+      - /media/nextcloud/download:/downloads #optional
+      - /media/nextcloud/nextclouddata/Mira/files/Filme:/movies
+    restart: "always" # no | always | on-failure | unless--stopped
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.radarr.entrypoints=https"
+      - "traefik.http.routers.radarr.rule=Host(`radarr.$DOMAINNAME`)"
+      - "traefik.http.routers.radarr.tls=true"
+      - "traefik.http.routers.radarr.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.radarr.service=radarr"
+      - "traefik.http.services.radarr.loadbalancer.server.port=7878"
+      - "traefik.http.routers.radarr.middlewares=chain-auth@file"
+      - "traefik.docker.network=t2_proxy"
+    ports:
+      - 7878:7878
+  sabnzb:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzb
+    hostname: sabnzb.centip3.de
+    #hostname: nzbget #produces an error against network-mode
+    networks:
+      t2_proxy:
+        ipv4_address: 192.168.90.249
+    environment:
+      - PUID=33
+      - PGID=33
+      - TZ=America/New_York
+      - HOST_WHITELIST_ENTRIES="sabnzb.centip3.de, traefik.centip3.de, centip3.de"
+    volumes:
+      - $DOCKERDIR/sabnzb:/config
+      - /media/nextcloud/download:/downloads #optional
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.sabnzb.entrypoints=https"
+      - "traefik.http.routers.sabnzb.rule=Host(`sabnzb.$DOMAINNAME`)"
+      - "traefik.http.routers.sabnzb.tls=true"
+      - "traefik.http.routers.sabnzb.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.sabnzb.service=sabnzb"
+      - "traefik.http.routers.sabnzb.middlewares=chain-auth@file"
+      - "traefik.http.services.sabnzb.loadbalancer.server.port=8080"
+      - "traefik.docker.network=t2_proxy"
