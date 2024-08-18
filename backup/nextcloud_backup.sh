@@ -22,7 +22,7 @@
     for bak in ./nextcloud-dirbkp_*; do
         bak_name=`echo $bak`
         bak_date=`echo $bak_name | cut -d'-' -f2- | cut -d'_' -f2`
-        if [ $bak_date -lt $(date +%Y%m%d -d "7 days ago") ] ; then
+        if [ $bak_date -lt $(date +%Y%m%d -d "3 days ago") ] ; then
                 rm -r "$bak"
         fi
     done
